@@ -31,6 +31,9 @@ Common targets:
 
 ## Output
 
-Output rows use `media_sources`, not the legacy `agencies` key. Each entity has
-`surface`, `label`, `wkdata_qid`, `start`, `stop`, and `score`.
-
+Output rows use `ci_id`, `ts`, `model_id`, and `nes`, following the pinned
+`impresso-schemas/json/impresso-2/semantic-enrichment/entities/entities-nel.v2.schema.json`.
+Media-source types are `org.ent.pressagency` and `org.ent.radiostation`;
+`fine_grained_type` preserves the full model label. The CLI validates each row,
+source-text offsets, and the pipeline label-to-QID mapping before writing it.
+Validation failure prevents Make from uploading the output.

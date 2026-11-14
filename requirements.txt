@@ -2,6 +2,8 @@
 boto3==1.35.95
 boto3-stubs==1.35.95
 check-jsonschema
+jsonschema>=4.18
+referencing>=0.30
 -e ./cookbook/lib
 # -e ../impresso-pipelines[mediasources]
 # Keep this constraint in sync with the version in the GitHub archive metadata.
@@ -14,3 +16,4 @@ smart-open[http,s3]==6.4.0
 numpy>=2.4,<2.5
 torch==2.12.0
 transformers==5.9.0
+impresso-inference[mediasources] @ git+https://github.com/impresso/impresso-inference.git@feat/mediasources-decoupled-pipeline

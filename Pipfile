@@ -9,6 +9,8 @@ requests = "*"
 boto3 = "==1.35.95"
 boto3-stubs = "==1.35.95"
 check-jsonschema = "*"
+jsonschema = ">=4.18"
+referencing = ">=0.30"
 impresso-cookbook = {editable = true, path = "./cookbook/lib",version=">=1.0.4"}
 pipenv = "*"
 python-dotenv = "*"

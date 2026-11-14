@@ -145,26 +145,42 @@ cookbook buffers before length sorting and processing.
 Rows are written only for documents with detected entities unless `--write-empty`
 is passed.
 
+Every output record is validated against the pinned submodule's
+`json/impresso-2/semantic-enrichment/entities/entities-nel.v2.schema.json`
+before it is written. References resolve locally without network access. The CLI
+also verifies that offsets reproduce the source surface and that each Wikidata
+QID agrees with the pipeline's label mapping. A validation failure stops the CLI;
+the Make recipe skips upload and removes the incomplete output.
+
+Initialize schemas with `git submodule update --init --recursive`.
+
 ```json
 {
-  "id": "doc-id",
-  "ts": "2026-08-29T12:00:00",
-  "media_sources": [
+  "ci_id": "GDL-1951-01-01-a-i0001",
+  "ts": "2026-09-01T12:00:00Z",
+  "model_id": "impresso-project/mmbert-impresso-mediasources-ner@v2.0.0#float32",
+  "nes": [
     {
+      "type": "org.ent.pressagency",
+      "fine_grained_type": "org.ent.pressagency.reuters",
       "surface": "Reuters",
-      "label": "org.ent.pressagency.reuters",
+      "lOffset": 120,
+      "rOffset": 127,
+      "confidence_ner": 0.94,
+      "confidence_nel": 0.94,
       "wkdata_qid": "Q130879",
-      "start": 120,
-      "stop": 127,
-      "score": 0.94
-    }
-  ],
-  "summary": [
-    {
-      "uid": "org.ent.pressagency.reuters",
-      "wkdata_qid": "Q130879",
-      "score": 0.94
+      "wkpedia_lg": null,
+      "wkpedia_pagename": null,
+      "label_fr": null,
+      "label_en": null,
+      "label_de": null,
+      "start_year": 1851
     }
   ]
 }
 ```
+
+Translated labels are currently unavailable and emitted as null. Linking uses
+the pipeline's fixed label-to-QID mapping; `confidence_nel` retains the model's
+entity score rather than an independently estimated linking confidence.
+Existing outputs are not automatically revalidated or replaced.
