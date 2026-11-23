@@ -15,14 +15,16 @@ impresso-project/mmbert-impresso-mediasources-ner
 
 Default revision:
 ```text
-v2.0.0
+v2.1.0
 ```
 
 The model is based on **ModernBERT** architecture, fine-tuned for token classification across 99 BIO tags covering 49 media agencies and radio networks with historical founding-year validation.
 
 ## Compute Engine: `impresso-inference`
 
-This cookbook uses the decoupled, high-throughput compute engine from [`impresso-inference`](https://github.com/impresso/impresso-inference) (`feat/mediasources-decoupled-pipeline`).
+This cookbook uses the decoupled, high-throughput compute engine from [`impresso-inference`](https://github.com/impresso/impresso-inference) (branch `feat/mediasources-tokenization-windows`, pinned by commit in `requirements.txt`).
+
+This branch tokenizes with the model's `unicode-word-punctuation-v1` scheme, covers long articles with 256-word windows (32-word overlap), and uses the model's reference BIO Viterbi rules. It requires transformers 5. On CPU fp32 its output matches the evaluated model exactly (workbench backend parity check: 490/490 test documents, 62/62 long concatenated documents).
 
 ### Performance Highlights (UZH ScienceCloud NVIDIA L4, 24GB):
 - **Dynamic Length-Bucketing:** Slices batches by sequence length, avoiding padding waste on shorter news briefs (**13.4× speedup** over naïve static padding).
@@ -65,7 +67,7 @@ Process a specific newspaper volume directly with S3 WIP locks and upload:
 
 ```bash
 make mediasources-target \
-  CFG=configs/config_mediasources-ner-mmbert-impresso-mediasources-ner_v2-0-0_v1-0-0.mk \
+  CFG=configs/config_mediasources-ner-mmbert-impresso-mediasources-ner_v2-1-0_v1-0-0.mk \
   PROVIDER=LeTemps NEWSPAPER=GDL NEWSPAPER_YEARS=1950
 ```
 
@@ -74,7 +76,7 @@ Run across all newspapers in your configured newspaper list:
 
 ```bash
 make processing-target \
-  CFG=configs/config_mediasources-ner-mmbert-impresso-mediasources-ner_v2-0-0_v1-0-0.mk
+  CFG=configs/config_mediasources-ner-mmbert-impresso-mediasources-ner_v2-1-0_v1-0-0.mk
 ```
 
 ### 3. Collection Completeness Audit
@@ -82,7 +84,7 @@ Audit processing completion against canonical rebuilt issues:
 
 ```bash
 make check-collection-completeness \
-  CFG=configs/config_mediasources-ner-mmbert-impresso-mediasources-ner_v2-0-0_v1-0-0.mk
+  CFG=configs/config_mediasources-ner-mmbert-impresso-mediasources-ner_v2-1-0_v1-0-0.mk
 ```
 
 ## Direct CLI Invocation

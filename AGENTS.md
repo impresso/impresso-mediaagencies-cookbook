@@ -27,7 +27,7 @@ Common targets:
 - `lib/cli_mediasources.py`: streaming media-source processing CLI.
 - `cookbook/paths_mediasources.mk`: run identity and output path variables.
 - `cookbook/processing_mediasources.mk`: rebuilt input to media-source output rule.
-- `config/config_v2-0-0.mk`: default model/run configuration.
+- `configs/config_mediasources-ner-mmbert-impresso-mediasources-ner_v2-1-0_v1-0-0.mk`: current model/run configuration (v2.1.0); the v2-0-0 config is kept for the earlier run.
 
 ## Output
 

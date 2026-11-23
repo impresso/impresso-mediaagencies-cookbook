@@ -16,4 +16,5 @@ smart-open[http,s3]==6.4.0
 numpy>=2.4,<2.5
 torch==2.12.0
 transformers==5.9.0
-impresso-inference[mediasources] @ git+https://github.com/impresso/impresso-inference.git@feat/mediasources-decoupled-pipeline
+# Pinned commit on feat/mediasources-tokenization-windows (parity-checked with model v2.1.0).
+impresso-inference[mediasources] @ git+https://github.com/impresso/impresso-inference.git@8e03697ee4a579ecee5fa02cc50456cde43e18e6
