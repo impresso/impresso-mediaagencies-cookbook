@@ -50,14 +50,14 @@ try:
     from impresso_cookbook import get_timestamp, get_transport_params, setup_logging  # type: ignore
 except ImportError:
     from common import get_timestamp, get_transport_params, setup_logging  # type: ignore
-from impresso_pipelines.mediasources import MediaSourcesPipeline  # type: ignore
+from impresso_pipelines.mediaagencies import MediaAgenciesPipeline  # type: ignore
 
 
 log = logging.getLogger(__name__)
 
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Impresso media-source NER on rebuilt JSONL.")
+    parser = argparse.ArgumentParser(description="Run Impresso media-agency NER on rebuilt JSONL.")
     parser.add_argument("-i", "--input", required=True, help="Input JSONL or JSONL.BZ2 file, local or S3")
     parser.add_argument("-o", "--output", required=True, help="Output JSONL or JSONL.BZ2 file, local or S3")
     parser.add_argument("--log-file", help="Write log to FILE", metavar="FILE")
@@ -67,7 +67,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level (default: %(default)s)",
     )
-    parser.add_argument("--hf-model", default="impresso-project/mmbert-impresso-mediasources-ner")
+    parser.add_argument("--hf-model", default="impresso-project/mmbert-impresso-mediaagencies-ner")
     parser.add_argument("--revision", default="v2.0.0")
     parser.add_argument("--batch-size", type=int, default=32, help="Model window batch size")
     parser.add_argument(
@@ -113,14 +113,14 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--filter-anachronistic",
         action="store_true",
-        help="Drop media-source entities whose configured start year is after the publication year",
+        help="Drop media-agency entities whose configured start year is after the publication year",
     )
     parser.add_argument("--local-files-only", action="store_true", help="Use only cached Hugging Face model files")
     parser.add_argument("--diagnostics", action="store_true", help="Include token-level diagnostics in output rows")
     parser.add_argument(
         "--write-empty",
         action="store_true",
-        help="Write rows for documents with no detected media-source entities",
+        help="Write rows for documents with no detected media-agency entities",
     )
     return parser.parse_args(args)
 
@@ -365,7 +365,7 @@ def validate_inference_stats(stats: dict[str, Any], pipeline: Any) -> None:
     missing_stats = REQUIRED_INFERENCE_STATS - stats.keys()
     if missing_stats:
         raise RuntimeError(
-            "MediaSourcesPipeline returned incomplete inference diagnostics; "
+            "MediaAgenciesPipeline returned incomplete inference diagnostics; "
             f"missing={sorted(missing_stats)} "
             f"pipeline_class={type(pipeline).__module__}.{type(pipeline).__qualname__} "
             f"pipeline_source={inspect.getfile(type(pipeline))}"
@@ -414,7 +414,7 @@ def iter_input_rows(path: str) -> Iterable[dict[str, Any]]:
             }
 
 
-class MediaSourcesProcessor:
+class MediaAgenciesProcessor:
     def __init__(
         self,
         *,
@@ -466,7 +466,7 @@ class MediaSourcesProcessor:
         output_validator()
 
         setup_logging(log_level, log_file, logger=log)
-        log.info("Initializing MediaSourcesPipeline model=%s revision=%s dtype=%s", hf_model, revision, dtype)
+        log.info("Initializing MediaAgenciesPipeline model=%s revision=%s dtype=%s", hf_model, revision, dtype)
         log.info(
             "Configured batch sizes: model_window_batch_size=%s outer_batch_size=%s outer_batch_max_chars=%s",
             batch_size,
@@ -489,18 +489,18 @@ class MediaSourcesProcessor:
             import transformers  # type: ignore
 
             log.info(
-                "Runtime imports: impresso_pipelines=%s path=%s MediaSourcesPipeline=%s "
+                "Runtime imports: impresso_pipelines=%s path=%s MediaAgenciesPipeline=%s "
                 "transformers=%s torch=%s cuda=%s",
                 getattr(impresso_pipelines, "__version__", "unknown"),
                 getattr(impresso_pipelines, "__file__", "unknown"),
-                inspect.getfile(MediaSourcesPipeline),
+                inspect.getfile(MediaAgenciesPipeline),
                 getattr(transformers, "__version__", "unknown"),
                 getattr(torch, "__version__", "unknown"),
                 getattr(torch.version, "cuda", None),
             )
         except Exception as exc:
             log.warning("Runtime import diagnostics unavailable: %s", exc)
-        self.pipeline = MediaSourcesPipeline(
+        self.pipeline = MediaAgenciesPipeline(
             model=hf_model,
             revision=revision,
             dtype=dtype,
@@ -825,7 +825,7 @@ class MediaSourcesProcessor:
                 log.info("Outer batch %s memory after write cleanup: rss=%s", outer_batch_index, fmt_mb(current_rss_mb()))
 
         total_duration = max(time.perf_counter() - started, 1e-9)
-        log.info("Completed media-source processing")
+        log.info("Completed media-agency processing")
         log.info("Read rows: %s", read_count)
         log.info("Processed non-empty docs: %s", processed_count)
         log.info("Skipped empty docs: %s", skipped_empty_count)
@@ -853,7 +853,7 @@ class MediaSourcesProcessor:
                 sample_eligible_count,
             )
         log.info("Written rows: %s", written_count)
-        log.info("Recognized media-source entities: %s", sum(entity_counts.values()))
+        log.info("Recognized media-agency entities: %s", sum(entity_counts.values()))
         log.info("Inference configuration:")
         log.info("  model: %s", self.hf_model)
         log.info("  revision: %s", self.revision)
@@ -908,28 +908,28 @@ class MediaSourcesProcessor:
 def main(args: list[str] | None = None) -> None:
     options = parse_args(args)
     if options.min_year is None:
-        options.min_year = env_int("MIN_YEAR_MEDIASOURCES")
+        options.min_year = env_int("MIN_YEAR_MEDIAAGENCIES")
     if options.outer_batch_max_chars is None:
-        options.outer_batch_max_chars = env_int("OUTER_BATCH_MAX_CHARS_MEDIASOURCES")
+        options.outer_batch_max_chars = env_int("OUTER_BATCH_MAX_CHARS_MEDIAAGENCIES")
     if options.outer_batch_max_chars is None:
         options.outer_batch_max_chars = DEFAULT_OUTER_BATCH_MAX_CHARS
     if options.sample is None:
-        env_sample = env_float("SAMPLE_MEDIASOURCES")
+        env_sample = env_float("SAMPLE_MEDIAAGENCIES")
         options.sample = 1.0 if env_sample is None else env_sample
     if options.sample_seed is None:
-        options.sample_seed = env_int("SAMPLE_SEED_MEDIASOURCES")
+        options.sample_seed = env_int("SAMPLE_SEED_MEDIAAGENCIES")
 
     # Configure logging before model initialization so CLI arguments are captured
     # even if pipeline construction fails.
     setup_logging(options.log_level, options.log_file, logger=log)
     log.info("%s", options)
     log.info(
-        "MediaSources environment: MIN_YEAR_MEDIASOURCES=%r OUTER_BATCH_MAX_CHARS_MEDIASOURCES=%r "
-        "SAMPLE_MEDIASOURCES=%r SAMPLE_SEED_MEDIASOURCES=%r",
-        os.environ.get("MIN_YEAR_MEDIASOURCES"),
-        os.environ.get("OUTER_BATCH_MAX_CHARS_MEDIASOURCES"),
-        os.environ.get("SAMPLE_MEDIASOURCES"),
-        os.environ.get("SAMPLE_SEED_MEDIASOURCES"),
+        "MediaAgencies environment: MIN_YEAR_MEDIAAGENCIES=%r OUTER_BATCH_MAX_CHARS_MEDIAAGENCIES=%r "
+        "SAMPLE_MEDIAAGENCIES=%r SAMPLE_SEED_MEDIAAGENCIES=%r",
+        os.environ.get("MIN_YEAR_MEDIAAGENCIES"),
+        os.environ.get("OUTER_BATCH_MAX_CHARS_MEDIAAGENCIES"),
+        os.environ.get("SAMPLE_MEDIAAGENCIES"),
+        os.environ.get("SAMPLE_SEED_MEDIAAGENCIES"),
     )
     if not 0.0 < options.sample <= 1.0:
         raise ValueError("--sample must be greater than 0 and less than or equal to 1")
@@ -947,7 +947,7 @@ def main(args: list[str] | None = None) -> None:
             )
         elif input_year < options.min_year:
             log.info(
-                "Skipping media-source processing for input_year=%s from %s because it is earlier than "
+                "Skipping media-agency processing for input_year=%s from %s because it is earlier than "
                 "--min-year=%s; writing empty output %s",
                 input_year,
                 year_source,
@@ -967,7 +967,7 @@ def main(args: list[str] | None = None) -> None:
     device = None if str(options.device).lower() == "auto" else options.device
     if isinstance(device, str) and device.lstrip("-").isdigit():
         device = int(device)
-    processor = MediaSourcesProcessor(
+    processor = MediaAgenciesProcessor(
         input_file=options.input,
         output_file=options.output,
         hf_model=options.hf_model,

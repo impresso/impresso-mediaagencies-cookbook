@@ -1,4 +1,4 @@
-# Makefile for mediasources processing
+# Makefile for mediaagencies processing
 # Read the README.md for more information, or run `make` for help.
 
 include cookbook/log.mk
@@ -24,24 +24,24 @@ override COLLECTION_JOBS := $(or $(strip $(COLLECTION_JOBS_RAW)),1)
 
 include cookbook/setup.mk
 include cookbook/setup_python.mk
-include cookbook/setup_mediasources.mk
+include cookbook/setup_mediaagencies.mk
 
 include cookbook/newspaper_list.mk
 
 include cookbook/paths_rebuilt.mk
-include cookbook/paths_mediasources.mk
+include cookbook/paths_mediaagencies.mk
 
 include cookbook/main_targets.mk
 
 include cookbook/sync.mk
 include cookbook/sync_rebuilt.mk
-include cookbook/sync_mediasources.mk
+include cookbook/sync_mediaagencies.mk
 
 include cookbook/clean.mk
 
 include cookbook/processing.mk
-include cookbook/processing_mediasources.mk
+include cookbook/processing_mediaagencies.mk
 
-include cookbook/aggregators_mediasources.mk
+include cookbook/aggregators_mediaagencies.mk
 
 include cookbook/local_to_s3.mk

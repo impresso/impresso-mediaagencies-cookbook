@@ -1,8 +1,8 @@
 # Impresso Media Sources (Media Agencies) Cookbook
 
-Corpus-scale processing cookbook for Impresso media-source / news-agency NER.
+Corpus-scale processing cookbook for Impresso media-agency / news-agency NER.
 
-> **Note on Naming:** This task is currently designated as `mediasources` in the code and S3 storage prefixes. In future Impresso releases, it will be designated as **Media Agencies** (`mediaagencies`).
+> **Note on Naming:** This task is currently designated as `mediaagencies` in the code and S3 storage prefixes. In future Impresso releases, it will be designated as **Media Agencies** (`mediaagencies`).
 
 This repository streams rebuilt Impresso JSONL files from S3, orchestrates distributed processing using GNU Make and S3 WIP locks (`manage_s3_wip`), executes high-throughput inference via the **`impresso-inference`** backend, and writes compact compressed JSONL output containing detected press-agency and radio-station mentions with Wikidata QID enrichment and historical anachronism filtering.
 
@@ -10,7 +10,7 @@ This repository streams rebuilt Impresso JSONL files from S3, orchestrates distr
 
 Default model:
 ```text
-impresso-project/mmbert-impresso-mediasources-ner
+impresso-project/mmbert-impresso-mediaagencies-ner
 ```
 
 Default revision:
@@ -36,8 +36,8 @@ This branch tokenizes with the model's `unicode-word-punctuation-v1` scheme, cov
 Clone the cookbook repository with submodules:
 
 ```bash
-git clone --recursive https://github.com/impresso/impresso-mediasources-cookbook.git
-cd impresso-mediasources-cookbook
+git clone --recursive https://github.com/impresso/impresso-mediaagencies-cookbook.git
+cd impresso-mediaagencies-cookbook
 ```
 
 If you already cloned without submodules, initialize them:
@@ -66,8 +66,8 @@ uv pip install --no-cache torch torchvision torchaudio --index-url https://downl
 Process a specific newspaper volume directly with S3 WIP locks and upload:
 
 ```bash
-make mediasources-target \
-  CFG=configs/config_mediasources-ner-mmbert-impresso-mediasources-ner_v2-1-0_v1-0-0.mk \
+make mediaagencies-target \
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-0-0.mk \
   PROVIDER=LeTemps NEWSPAPER=GDL NEWSPAPER_YEARS=1950
 ```
 
@@ -76,7 +76,7 @@ Run across all newspapers in your configured newspaper list:
 
 ```bash
 make processing-target \
-  CFG=configs/config_mediasources-ner-mmbert-impresso-mediasources-ner_v2-1-0_v1-0-0.mk
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-0-0.mk
 ```
 
 ### 3. Collection Completeness Audit
@@ -84,7 +84,7 @@ Audit processing completion against canonical rebuilt issues:
 
 ```bash
 make check-collection-completeness \
-  CFG=configs/config_mediasources-ner-mmbert-impresso-mediasources-ner_v2-1-0_v1-0-0.mk
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-0-0.mk
 ```
 
 ## Direct CLI Invocation
@@ -92,9 +92,9 @@ make check-collection-completeness \
 The underlying compute engine can also be invoked directly from the CLI:
 
 ```bash
-python3 -m impresso_inference.tasks.mediasources.cli.run \
+python3 -m impresso_inference.tasks.mediaagencies.cli.run \
   --input s3://122-rebuilt-final/LeTemps/GDL/GDL-1950.jsonl.bz2 \
-  --output s3://141-processed-data-staging/mediasources/LeTemps/GDL/GDL-1950.jsonl.bz2 \
+  --output s3://141-processed-data-staging/mediaagencies/LeTemps/GDL/GDL-1950.jsonl.bz2 \
   --device cuda \
   --precision bf16 \
   --batch-size 256

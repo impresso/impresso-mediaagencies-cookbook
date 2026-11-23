@@ -5,10 +5,10 @@ check-jsonschema
 jsonschema>=4.18
 referencing>=0.30
 -e ./cookbook/lib
-# -e ../impresso-pipelines[mediasources]
+# -e ../impresso-pipelines[mediaagencies]
 # Keep this constraint in sync with the version in the GitHub archive metadata.
 impresso-pipelines==0.6.1.2
-impresso-pipelines[mediasources] @ https://github.com/impresso/impresso-pipelines/archive/refs/heads/mediasourcespipeline.zip
+impresso-pipelines[mediaagencies] @ https://github.com/impresso/impresso-pipelines/archive/refs/heads/mediaagenciespipeline.zip
 pipenv
 python-dotenv
 requests
@@ -16,5 +16,5 @@ smart-open[http,s3]>=7.0
 numpy>=2.4,<2.5
 torch==2.12.0
 transformers==5.9.0
-# Pinned commit on feat/mediasources-tokenization-windows (parity-checked with model v2.1.0).
-impresso-inference[mediasources] @ git+https://github.com/impresso/impresso-inference.git@62533c3e5434226f6e46a86fb4c246c4f5d6cdd3
+# Pinned commit on feat/mediaagencies-tokenization-windows (parity-checked with model v2.1.0).
+impresso-inference[mediaagencies] @ git+https://github.com/impresso/impresso-inference.git@263749fe8aeffa97f7aba188b7f1fe2e5ed3df1e

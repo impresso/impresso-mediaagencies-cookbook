@@ -3,8 +3,8 @@
 ## Repository Purpose
 
 This repository is a Make-based processing cookbook for Impresso media-source
-NER at corpus scale. It detects cited media sources in rebuilt newspaper content
-using `impresso_pipelines.mediasources.MediaSourcesPipeline`.
+NER at corpus scale. It detects cited media agencies in rebuilt newspaper content
+using `impresso_pipelines.mediaagencies.MediaAgenciesPipeline`.
 
 The cookbook owns orchestration only: S3/local paths, stamps, streaming JSONL
 I/O, outer batching, length bucketing, logging, and output upload. Model
@@ -24,10 +24,10 @@ Common targets:
 
 ## Important Files
 
-- `lib/cli_mediasources.py`: streaming media-source processing CLI.
-- `cookbook/paths_mediasources.mk`: run identity and output path variables.
-- `cookbook/processing_mediasources.mk`: rebuilt input to media-source output rule.
-- `configs/config_mediasources-ner-mmbert-impresso-mediasources-ner_v2-1-0_v1-0-0.mk`: current model/run configuration (v2.1.0); the v2-0-0 config is kept for the earlier run.
+- `lib/cli_mediaagencies.py`: streaming media-agency processing CLI.
+- `cookbook/paths_mediaagencies.mk`: run identity and output path variables.
+- `cookbook/processing_mediaagencies.mk`: rebuilt input to media-agency output rule.
+- `configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-0-0.mk`: current model/run configuration (v2.1.0); the v2-0-0 config is kept for the earlier run.
 
 ## Output
 

@@ -6,7 +6,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from lib import cli_mediasources
+from lib import cli_mediaagencies
 
 
 def test_processor_keeps_entities_aligned_after_length_sort(tmp_path, monkeypatch):
@@ -32,7 +32,7 @@ def test_processor_keeps_entities_aligned_after_length_sort(tmp_path, monkeypatc
         def __init__(self, **kwargs):
             self.kwargs = kwargs
             self.wkdata_qids = {"org.ent.pressagency.reuters": "Q130879", "org.ent.radiostation.bbc": "Q9531"}
-            self.last_inference_stats = dict.fromkeys(cli_mediasources.REQUIRED_INFERENCE_STATS, 0)
+            self.last_inference_stats = dict.fromkeys(cli_mediaagencies.REQUIRED_INFERENCE_STATS, 0)
             assert kwargs["device"] == -1
 
         def __call__(self, texts, *, publication_date=None, filter_anachronistic=None, diagnostics=False):
@@ -81,10 +81,10 @@ def test_processor_keeps_entities_aligned_after_length_sort(tmp_path, monkeypatc
                 },
             ]
 
-    monkeypatch.setattr(cli_mediasources, "MediaSourcesPipeline", FakePipeline)
-    monkeypatch.setattr(cli_mediasources, "get_timestamp", lambda: "2026-09-01T12:00:00Z")
+    monkeypatch.setattr(cli_mediaagencies, "MediaAgenciesPipeline", FakePipeline)
+    monkeypatch.setattr(cli_mediaagencies, "get_timestamp", lambda: "2026-09-01T12:00:00Z")
 
-    processor = cli_mediasources.MediaSourcesProcessor(
+    processor = cli_mediaagencies.MediaAgenciesProcessor(
         input_file=str(input_path),
         output_file=str(output_path),
         hf_model="fake-model",
@@ -124,21 +124,21 @@ def test_validation_rejects_invalid_entities():
     from jsonschema import ValidationError
 
     label = 'org.ent.pressagency.reuters'
-    entity = cli_mediasources.entity_to_nel(dict(
+    entity = cli_mediaagencies.entity_to_nel(dict(
         label=label, surface='Reuters', start=0, stop=7, score=0.9, wkdata_qid='Q130879'))
     row = dict(ci_id='GDL-1951-01-01-a-i0001', ts='2026-09-01T12:00:00Z', model_id='test', nes=[entity])
     mapping = {label: 'Q130879'}
-    cli_mediasources.validate_output_row(row, 'Reuters.', mapping)
+    cli_mediaagencies.validate_output_row(row, 'Reuters.', mapping)
     for field, value in [('confidence_ner', 1.01), ('wkdata_qid', 'invalid'), ('type', 'invalid')]:
         broken = copy.deepcopy(row)
         broken['nes'][0][field] = value
         with pytest.raises(ValidationError):
-            cli_mediasources.validate_output_row(broken, 'Reuters.', mapping)
+            cli_mediaagencies.validate_output_row(broken, 'Reuters.', mapping)
     broken = copy.deepcopy(row)
     del broken['nes'][0]['label_fr']
     with pytest.raises(ValidationError):
-        cli_mediasources.validate_output_row(broken, 'Reuters.', mapping)
+        cli_mediaagencies.validate_output_row(broken, 'Reuters.', mapping)
     with pytest.raises(ValueError, match='offsets'):
-        cli_mediasources.validate_output_row(row, 'Different text', mapping)
+        cli_mediaagencies.validate_output_row(row, 'Different text', mapping)
     with pytest.raises(ValueError, match='mapping'):
-        cli_mediasources.validate_output_row(row, 'Reuters.', {label: 'Q1'})
+        cli_mediaagencies.validate_output_row(row, 'Reuters.', {label: 'Q1'})
