@@ -4,12 +4,13 @@
 
 This repository is a Make-based processing cookbook for Impresso media-source
 NER at corpus scale. It detects cited media agencies in rebuilt newspaper content
-using `impresso_pipelines.mediaagencies.MediaAgenciesPipeline`.
+using the `impresso_inference.tasks.mediaagencies` stages of `impresso-inference`
+(`cli.prepare`, `cli.forward`, `cli.decode`, or the unified `cli.run`).
 
-The cookbook owns orchestration only: S3/local paths, stamps, streaming JSONL
-I/O, outer batching, length bucketing, logging, and output upload. Model
-tokenization, window batching, decoding, entity scoring, and `wkdata_qid`
-enrichment belong to `impresso-pipelines`.
+The cookbook owns orchestration only: S3/local paths, stamps, WIP locks,
+logging, and output upload. Tokenization, window batching, the forward pass,
+decoding, entity scoring, `wkdata_qid` enrichment and the output record format
+belong to `impresso-inference`.
 
 ## Commands
 
@@ -34,6 +35,10 @@ Common targets:
 Output rows use `ci_id`, `ts`, `model_id`, and `nes`, following the pinned
 `impresso-schemas/json/impresso-2/semantic-enrichment/entities/entities-nel.v2.schema.json`.
 Media-source types are `org.ent.pressagency` and `org.ent.radiostation`;
-`fine_grained_type` preserves the full model label. The CLI validates each row,
-source-text offsets, and the pipeline label-to-QID mapping before writing it.
-Validation failure prevents Make from uploading the output.
+`fine_grained_type` preserves the full model label. The decode stage
+(`impresso_inference.tasks.mediaagencies.cli.decode`) validates each row against
+the pinned schema (`DECODE_VALIDATE_SCHEMAS_MEDIAAGENCIES`); validation failure
+prevents Make from uploading the output. Surfaces are rebuilt from tokens and
+offsets; `DECODE_TEXT_INPUT_MEDIAAGENCIES=1` additionally checks them against the
+rebuilt source text. The first v2.1.0 collection run used the earlier minimal
+`{"id", "entities"}` format.

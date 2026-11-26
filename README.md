@@ -109,18 +109,93 @@ Key arguments:
 
 ## Output Shape
 
-Output records follow Impresso entity enrichment conventions:
+Final output records follow the Impresso
+[`entities-nel.v2`](https://github.com/impresso/impresso-schemas/blob/dev/json/impresso-2/semantic-enrichment/entities/entities-nel.v2.schema.json)
+schema, one content item per line:
 
 ```json
 {
-  "id": "GDL-1950-01-03-a-p0001",
-  "entities": [
+  "ci_id": "NZZ-1900-01-04-c-i0002",
+  "ts": "2026-11-26T06:53:05Z",
+  "model_id": "impresso-project/mmbert-impresso-mediaagencies-ner@v2.1.0",
+  "nes": [
     {
-      "label": "org.ent.pressagency.afp",
-      "surface": "AFP",
-      "offset": [140, 143],
-      "wikidata_id": "Q40464"
+      "type": "org.ent.pressagency",
+      "fine_grained_type": "org.ent.pressagency.reuters",
+      "surface": "Reuter",
+      "lOffset": 250,
+      "rOffset": 256,
+      "confidence_ner": 0.8355,
+      "confidence_nel": 0.8355,
+      "wkdata_qid": "Q130879",
+      "wkpedia_lg": null,
+      "wkpedia_pagename": null,
+      "label_fr": null,
+      "label_en": null,
+      "label_de": null,
+      "start_year": 1851
     }
   ]
 }
 ```
+
+- `type` is `org.ent.pressagency` or `org.ent.radiostation`; `fine_grained_type` keeps the
+  full model label.
+- `confidence_ner` is the lowest P(B-label) + P(I-label) over the mention's words;
+  `confidence_nel` has the same value.
+- `surface` is rebuilt exactly from the tokens and offsets, because the rebuilt `ft` text
+  has only spaces between tokens.
+
+The first v2.1.0 collection run (2026-11, `v1-0-0`) was written in the earlier minimal format
+`{"id", "entities": [{"label", "offset", "wikidata_id"}]}`.
+
+### Decode options
+
+The decode stage validates every row against the pinned `impresso-schemas` submodule;
+a validation failure stops the rule before upload. The decoder log ends with entity stats
+(mentions, types, top labels, anachronism pruning, confidence distribution).
+
+| Variable | Default | Effect |
+|---|---|---|
+| `DECODE_VALIDATE_SCHEMAS_MEDIAAGENCIES` | `impresso-schemas/json` | Schema directory for validation; empty disables it |
+| `DECODE_ID_INPUT_MEDIAAGENCIES` | `1` | Read the rebuilt input's content-item IDs; fill empty stage-2 IDs by position and check all others; stops on a mismatch |
+| `DECODE_WORKERS_MEDIAAGENCIES` | `1` | Decode processes per job; 1 streams the stage-2 file (about 1 GB peak); use `make -j` for parallel jobs |
+| `DECODE_TEXT_INPUT_MEDIAAGENCIES` | empty | Set to `1` for a spot check: read the rebuilt input, take surfaces from the source text and verify offsets (costs extra memory) |
+
+Example spot check of one year:
+
+```bash
+make mediaagencies-target \
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-0-0.mk \
+  PROVIDER=LeTemps NEWSPAPER=GDL NEWSPAPER_YEARS=1950 \
+  DECODE_TEXT_INPUT_MEDIAAGENCIES=1
+```
+
+### Re-decode of the first v2.1.0 run
+
+The first v2.1.0 run (`v1-0-0`) lost the content-item IDs of all BNF and FedGaz files:
+their rebuilt records carry `ci_id`, which its stage 1 did not read. The config
+`configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-1-0.mk`
+re-decodes the `v1-0-0` stage-2 logits into the `v1-1-0` folder, without new inference:
+it runs only the decode stage (`MEDIAAGENCIES_STAGE ?= decode`), reads stage 2 from the
+earlier run (`STAGE_RUN_VERSION_MEDIAAGENCIES ?= v1-0-0`), writes `entities-nel.v2`
+records and restores the IDs from the rebuilt input.
+
+```bash
+make processing-target \
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-1-0.mk
+```
+
+## Aggregation
+
+Collect all mentions of a run into one file, one JSON object per mention:
+
+```bash
+make aggregate-mediaagencies-mentions \
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-0-0.mk
+```
+
+The output is written next to the run folder as
+`<run-id>__AGGREGATED.mentions.jsonl.gz`, with the fields `ci_id`, `newspaper`, `date`,
+`label`, `wikidata_id`, `start` and `end`. The jq filter
+`cookbook/lib/mediaagencies_mentions.jq` reads the minimal format of the first v2.1.0 run.
