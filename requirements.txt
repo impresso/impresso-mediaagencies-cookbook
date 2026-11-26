@@ -17,4 +17,4 @@ numpy>=2.4,<2.5
 torch==2.12.0
 transformers==5.9.0
 # Pinned commit on feat/mediaagencies-tokenization-windows (parity-checked with model v2.1.0).
-impresso-inference[mediaagencies] @ git+https://github.com/impresso/impresso-inference.git@cd00e47594fa97e308654dde1fefd8d9680c1824
+impresso-inference[mediaagencies] @ git+https://github.com/impresso/impresso-inference.git@b38242bd721afd4af661c6308b7950bab564c7a7
