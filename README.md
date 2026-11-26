@@ -197,5 +197,6 @@ make aggregate-mediaagencies-mentions \
 
 The output is written next to the run folder as
 `<run-id>__AGGREGATED.mentions.jsonl.gz`, with the fields `ci_id`, `newspaper`, `date`,
-`label`, `wikidata_id`, `start` and `end`. The jq filter
-`cookbook/lib/mediaagencies_mentions.jq` reads the minimal format of the first v2.1.0 run.
+`type`, `label`, `wikidata_id`, `start`, `end`, `surface` and `confidence_ner`. The jq filter
+`cookbook/lib/mediaagencies_mentions.jq` reads both `entities-nel.v2` records and the minimal
+format of the first v2.1.0 run; for the minimal format, `surface` and `confidence_ner` are null.
