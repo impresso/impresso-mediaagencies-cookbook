@@ -186,6 +186,21 @@ make processing-target \
   CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-1-0.mk
 ```
 
+## S3 Layout
+
+All folders of a run sit next to each other under `mediaagencies/`; the stage folders
+carry the stage after the task, as in langident:
+
+```text
+mediaagencies/mediaagencies-ner-<model>_<version>/<PROVIDER>/<NEWSPAPER>/…          final output
+mediaagencies/mediaagencies-ner_stage1-<model>_<version>/<PROVIDER>/<NEWSPAPER>/…   stage 1 (prepare)
+mediaagencies/mediaagencies-ner_stage2-<model>_<version>/<PROVIDER>/<NEWSPAPER>/…   stage 2 (logits)
+mediaagencies/mediaagencies-ner-<model>_<version>__AGGREGATED.mentions.jsonl.gz
+```
+
+A re-decode run has no stage folders of its own: it reads those of
+`STAGE_RUN_VERSION_MEDIAAGENCIES`.
+
 ## Aggregation
 
 Collect all mentions of a run into one file, one JSON object per mention:
