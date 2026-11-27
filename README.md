@@ -4,7 +4,7 @@ Corpus-scale processing cookbook for Impresso media-agency / news-agency NER.
 
 > **Note on Naming:** This task is currently designated as `mediaagencies` in the code and S3 storage prefixes. In future Impresso releases, it will be designated as **Media Agencies** (`mediaagencies`).
 
-This repository streams rebuilt Impresso JSONL files from S3, orchestrates distributed processing using GNU Make and S3 WIP locks (`manage_s3_wip`), executes high-throughput inference via the **`impresso-inference`** backend, and writes compact compressed JSONL output containing detected press-agency and radio-station mentions with Wikidata QID enrichment and historical anachronism filtering.
+This repository streams rebuilt Impresso JSONL files (`s3://122-rebuilt-final`) from S3, orchestrates distributed processing using GNU Make and S3 WIP locks (`manage_s3_wip`), executes high-throughput inference via the **`impresso-inference`** backend, and writes compact compressed JSONL output containing detected press-agency and radio-station mentions with Wikidata QID enrichment and historical anachronism filtering.
 
 ## Model
 
@@ -22,7 +22,7 @@ The model is based on **ModernBERT** architecture, fine-tuned for token classifi
 
 ## Compute Engine: `impresso-inference`
 
-This cookbook uses the decoupled, high-throughput compute engine from [`impresso-inference`](https://github.com/impresso/impresso-inference) (branch `feat/mediasources-tokenization-windows`, pinned by commit in `requirements.txt`).
+This cookbook uses the decoupled, high-throughput compute engine from [`impresso-inference`](https://github.com/impresso/impresso-inference) (branch `feat/mediaagencies-tokenization-windows`, pinned by commit in `requirements.txt`).
 
 This branch tokenizes with the model's `unicode-word-punctuation-v1` scheme, covers long articles with 256-word windows (32-word overlap), and uses the model's reference BIO Viterbi rules. It requires transformers 5. On CPU fp32 its output matches the evaluated model exactly (workbench backend parity check: 490/490 test documents, 62/62 long concatenated documents).
 
@@ -62,12 +62,21 @@ uv pip install --no-cache torch torchvision torchaudio --index-url https://downl
 
 ## Usage
 
+Each run has its own config in `configs/`; the run version in its name is the S3 folder
+it writes. A new inference run needs a new config with a new `RUN_VERSION_MEDIAAGENCIES`
+(copy the `v1-0-0` config). Current configs:
+
+| Config | Stages | Status |
+|---|---|---|
+| `…_v2-1-0_v1-0-0.mk` | prepare, forward, decode | Template for new inference runs; its output was deleted (see below) |
+| `…_v2-1-0_v1-1-0.mk` | decode only, from the `v1-0-0` stage 2 | Current v2.1.0 output |
+
 ### 1. Process One Newspaper Year
 Process a specific newspaper volume directly with S3 WIP locks and upload:
 
 ```bash
 make mediaagencies-target \
-  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-0-0.mk \
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_<new-version>.mk \
   PROVIDER=LeTemps NEWSPAPER=GDL NEWSPAPER_YEARS=1950
 ```
 
@@ -76,7 +85,7 @@ Run across all newspapers in your configured newspaper list:
 
 ```bash
 make processing-target \
-  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-0-0.mk
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_<new-version>.mk
 ```
 
 ### 3. Collection Completeness Audit
@@ -84,7 +93,7 @@ Audit processing completion against canonical rebuilt issues:
 
 ```bash
 make check-collection-completeness \
-  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-0-0.mk
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-1-0.mk
 ```
 
 ## Direct CLI Invocation
@@ -94,7 +103,7 @@ The underlying compute engine can also be invoked directly from the CLI:
 ```bash
 python3 -m impresso_inference.tasks.mediaagencies.cli.run \
   --input s3://122-rebuilt-final/LeTemps/GDL/GDL-1950.jsonl.bz2 \
-  --output s3://141-processed-data-staging/mediaagencies/LeTemps/GDL/GDL-1950.jsonl.bz2 \
+  --output s3://141-processed-data-staging/mediaagencies/<run-id>/LeTemps/GDL/GDL-1950.jsonl.bz2 \
   --device cuda \
   --precision bf16 \
   --batch-size 256
@@ -146,8 +155,8 @@ schema, one content item per line:
 - `surface` is rebuilt exactly from the tokens and offsets, because the rebuilt `ft` text
   has only spaces between tokens.
 
-The first v2.1.0 collection run (2026-11, `v1-0-0`) was written in the earlier minimal format
-`{"id", "entities": [{"label", "offset", "wikidata_id"}]}`.
+The first v2.1.0 collection run (2026-11, `v1-0-0`) wrote the earlier minimal format
+`{"id", "entities": [{"label", "offset", "wikidata_id"}]}`; that output has been deleted.
 
 ### Decode options
 
@@ -166,20 +175,24 @@ Example spot check of one year:
 
 ```bash
 make mediaagencies-target \
-  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-0-0.mk \
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-1-0.mk \
   PROVIDER=LeTemps NEWSPAPER=GDL NEWSPAPER_YEARS=1950 \
   DECODE_TEXT_INPUT_MEDIAAGENCIES=1
 ```
 
-### Re-decode of the first v2.1.0 run
+### Runs of v2.1.0
 
-The first v2.1.0 run (`v1-0-0`) lost the content-item IDs of all BNF and FedGaz files:
-their rebuilt records carry `ci_id`, which its stage 1 did not read. The config
-`configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-1-0.mk`
-re-decodes the `v1-0-0` stage-2 logits into the `v1-1-0` folder, without new inference:
-it runs only the decode stage (`MEDIAAGENCIES_STAGE ?= decode`), reads stage 2 from the
-earlier run (`STAGE_RUN_VERSION_MEDIAAGENCIES ?= v1-0-0`), writes `entities-nel.v2`
-records and restores the IDs from the rebuilt input.
+| Run | Content | S3 |
+|---|---|---|
+| `v1-0-0` | prepare, forward and decode on the whole collection (2026-11-24/25) | Only stage 2 kept, for re-decodes; output and stage 1 deleted |
+| `v1-1-0` | Re-decode of the `v1-0-0` stage 2 (2026-11-26) | Current output: 10,513 files, 106.1 M content items, 6.23 M mentions |
+
+`v1-0-0` lost the content-item IDs of all BNF and FedGaz files: their rebuilt records carry
+`ci_id`, which its stage 1 did not read. `v1-1-0` re-decodes the `v1-0-0` stage-2 logits
+without new inference: it runs only the decode stage (`MEDIAAGENCIES_STAGE ?= decode`),
+reads stage 2 from the earlier run (`STAGE_RUN_VERSION_MEDIAAGENCIES ?= v1-0-0`), writes
+`entities-nel.v2` records and restores the IDs from the rebuilt input. Every content item
+of `v1-1-0` has a non-empty `ci_id`, with no duplicates within a file.
 
 ```bash
 make processing-target \
@@ -199,7 +212,9 @@ mediaagencies/mediaagencies-ner-<model>_<version>__AGGREGATED.mentions.jsonl.gz
 ```
 
 A re-decode run has no stage folders of its own: it reads those of
-`STAGE_RUN_VERSION_MEDIAAGENCIES`.
+`STAGE_RUN_VERSION_MEDIAAGENCIES`. Stage 1 can be deleted after the forward pass; it is
+rebuilt on CPU (`MEDIAAGENCIES_STAGE=prepare`) when a new forward pass needs it. Keep
+stage 2 as long as re-decodes may be needed.
 
 ## Aggregation
 
@@ -207,7 +222,7 @@ Collect all mentions of a run into one file, one JSON object per mention:
 
 ```bash
 make aggregate-mediaagencies-mentions \
-  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-0-0.mk
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-1-0.mk
 ```
 
 The output is written next to the run folder as
