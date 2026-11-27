@@ -1,170 +1,232 @@
-# Impresso Media Sources Cookbook
+# Impresso Media Sources (Media Agencies) Cookbook
 
-Corpus-scale processing cookbook for Impresso media-source NER.
+Corpus-scale processing cookbook for Impresso media-agency / news-agency NER.
 
-This repository streams rebuilt Impresso JSONL files, runs
-`impresso_pipelines.mediasources.MediaSourcesPipeline`, and writes compact JSONL
-output containing detected press-agency and radio-station mentions.
+> **Note on Naming:** This task is currently designated as `mediaagencies` in the code and S3 storage prefixes. In future Impresso releases, it will be designated as **Media Agencies** (`mediaagencies`).
+
+This repository streams rebuilt Impresso JSONL files (`s3://122-rebuilt-final`) from S3, orchestrates distributed processing using GNU Make and S3 WIP locks (`manage_s3_wip`), executes high-throughput inference via the **`impresso-inference`** backend, and writes compact compressed JSONL output containing detected press-agency and radio-station mentions with Wikidata QID enrichment and historical anachronism filtering.
 
 ## Model
 
 Default model:
-
 ```text
-impresso-project/mmbert-impresso-mediasources-ner
+impresso-project/mmbert-impresso-mediaagencies-ner
 ```
 
 Default revision:
-
 ```text
-v2.0.0
+v2.1.0
 ```
 
-The reusable pipeline owns annotation tokenization, 512-subtoken model windows,
-window batching, BIO decoding, entity scoring, and `wkdata_qid` enrichment.
+The model is based on **ModernBERT** architecture, fine-tuned for token classification across 99 BIO tags covering 49 media agencies and radio networks with historical founding-year validation.
 
-During development, `impresso-pipelines[mediasources]` is installed directly
-from the `mediasourcespipeline` branch of
-`https://github.com/impresso/impresso-pipelines`.
+## Compute Engine: `impresso-inference`
+
+This cookbook uses the decoupled, high-throughput compute engine from [`impresso-inference`](https://github.com/impresso/impresso-inference) (branch `feat/mediaagencies-tokenization-windows`, pinned by commit in `requirements.txt`).
+
+This branch tokenizes with the model's `unicode-word-punctuation-v1` scheme, covers long articles with 256-word windows (32-word overlap), and uses the model's reference BIO Viterbi rules. It requires transformers 5. On CPU fp32 its output matches the evaluated model exactly (workbench backend parity check: 490/490 test documents, 62/62 long concatenated documents).
+
+### Performance Highlights (UZH ScienceCloud NVIDIA L4, 24GB):
+- **Dynamic Length-Bucketing:** Slices batches by sequence length, avoiding padding waste on shorter news briefs (**13.4× speedup** over naïve static padding).
+- **Throughput:** **~2,000+ chunks/s** during GPU forward passes in `bfloat16`, saturating the GPU at 100% compute (72W / 72W).
+- **End-to-End Speed:** Decodes an entire annual newspaper volume (`GDL-1950`, ~39k items) in **~1 min 20 sec**!
 
 ## Installation
 
-Clone the cookbook repository and enter it:
+Clone the cookbook repository with submodules:
 
 ```bash
-git clone --recursive https://github.com/impresso/impresso-mediasources-cookbook.git
-cd impresso-mediasources-cookbook
+git clone --recursive https://github.com/impresso/impresso-mediaagencies-cookbook.git
+cd impresso-mediaagencies-cookbook
 ```
 
-If you already cloned without submodules, initialize them before installing:
+If you already cloned without submodules, initialize them:
 
 ```bash
 git submodule update --init --recursive
 ```
 
-Create the local environment with Pipenv:
+### Environment Setup (uv or pip)
 
+Using `uv` (recommended):
 ```bash
-pipenv install --dev
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
 ```
 
-This installs the corpus-processing dependencies plus the development notebook
-tools, including `ipykernel` and `ipython`. The model stack is pinned to the
-training-compatible environment (`transformers==5.9.0`, `torch==2.12.0`,
-`numpy>=2.4,<2.5`). If an existing environment already has older or incompatible
-model packages, refresh the model stack:
-
+If running on CUDA 12.4+ (e.g. UZH ScienceCloud L4):
 ```bash
-pipenv update transformers torch numpy
+uv pip install --no-cache torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 ```
-
-The default dependency configuration installs `impresso-pipelines` from the
-`mediasourcespipeline` branch on GitHub. For local development against a sibling
-checkout of `impresso-pipelines`, switch the commented/local dependency line in
-`Pipfile` or install that checkout in editable mode:
-
-```bash
-pip install -e ../impresso-pipelines[mediasources]
-```
-
-If installing with `requirements.txt`, keep the `impresso-pipelines` line as
-plain text. It intentionally uses the GitHub branch archive URL to avoid Git
-credential prompts on servers. The separate version constraint makes pip reject
-a stale branch archive whose package metadata has not advanced:
-
-```text
-impresso-pipelines==0.6.1.2
-impresso-pipelines[mediasources] @ https://github.com/impresso/impresso-pipelines/archive/refs/heads/mediasourcespipeline.zip
-```
-
-If you prefer a plain virtual environment, install the runtime requirements and
-then add the notebook tools:
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
-pip install ipykernel ipython
-```
-
-## Manual Diagnostics Notebook
-
-The manual token-diagnostics notebook is available at:
-
-```text
-notebooks/manual_token_diagnostics.ipynb
-```
-
-Start Jupyter from the cookbook environment:
-
-```bash
-pipenv run jupyter notebook
-```
-
-Open the notebook, paste one rebuilt content-item JSON object into
-`CONTENT_ITEM_JSON`, and run the cells. The notebook reads the full text from
-`ft`, runs `MediaSourcesPipeline` with `diagnostics=True`, and displays entity,
-summary, highlighted-text, token-diagnostics, and raw JSON views.
 
 ## Usage
 
-Process locally available rebuilt files for one newspaper:
+Each run has its own config in `configs/`; the run version in its name is the S3 folder
+it writes. A new inference run needs a new config with a new `RUN_VERSION_MEDIAAGENCIES`
+(copy the `v1-0-0` config). Current configs:
+
+| Config | Stages | Status |
+|---|---|---|
+| `…_v2-1-0_v1-0-0.mk` | prepare, forward, decode | Template for new inference runs; its output was deleted (see below) |
+| `…_v2-1-0_v1-1-0.mk` | decode only, from the `v1-0-0` stage 2 | Current v2.1.0 output |
+
+### 1. Process One Newspaper Year
+Process a specific newspaper volume directly with S3 WIP locks and upload:
 
 ```bash
-make CFG=configs/config_mediasources-ner-mmbert-impresso-mediasources-ner_v2-0-0_v1-0-0.mk processing-target NEWSPAPER=GDL
+make mediaagencies-target \
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_<new-version>.mk \
+  PROVIDER=LeTemps NEWSPAPER=GDL NEWSPAPER_YEARS=1950
 ```
 
-Full sync/process/upload workflow:
+### 2. Full Collection Run
+Run across all newspapers in your configured newspaper list:
 
 ```bash
-make CFG=configs/config_mediasources-ner-mmbert-impresso-mediasources-ner_v2-0-0_v1-0-0.mk newspaper NEWSPAPER=GDL
+make processing-target \
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_<new-version>.mk
 ```
 
-## CLI
-
-The core command is:
+### 3. Collection Completeness Audit
+Audit processing completion against canonical rebuilt issues:
 
 ```bash
-python3 lib/cli_mediasources.py \
-  --input input.jsonl.bz2 \
-  --output output.jsonl.bz2 \
-  --hf-model impresso-project/mmbert-impresso-mediasources-ner \
-  --revision v2.0.0 \
-  --batch-size 32 \
-  --outer-batch-size 512 \
-  --device auto \
-  --filter-anachronistic
+make check-collection-completeness \
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-1-0.mk
 ```
 
-`--batch-size` controls model window batch size inside
-`MediaSourcesPipeline`. `--outer-batch-size` controls how many documents the
-cookbook buffers before length sorting and processing.
+## Direct CLI Invocation
+
+The underlying compute engine can also be invoked directly from the CLI:
+
+```bash
+python3 -m impresso_inference.tasks.mediaagencies.cli.run \
+  --input s3://122-rebuilt-final/LeTemps/GDL/GDL-1950.jsonl.bz2 \
+  --output s3://141-processed-data-staging/mediaagencies/<run-id>/LeTemps/GDL/GDL-1950.jsonl.bz2 \
+  --device cuda \
+  --precision bf16 \
+  --batch-size 256
+```
+
+Key arguments:
+- `--device`: `cuda` or `cpu`.
+- `--precision`: `bf16` (recommended for ModernBERT), `fp16`, or `fp32`.
+- `--batch-size`: Batch size per forward pass (defaults to 256 on NVIDIA L4).
+- `--num-workers`: Number of CPU workers for parallel pre-tokenization and Viterbi decoding (defaults to all available cores).
+- `--no-filter-anachronistic`: Disable pruning of mentions founded after the document's publication year.
 
 ## Output Shape
 
-Rows are written only for documents with detected entities unless `--write-empty`
-is passed.
+Final output records follow the Impresso
+[`entities-nel.v2`](https://github.com/impresso/impresso-schemas/blob/dev/json/impresso-2/semantic-enrichment/entities/entities-nel.v2.schema.json)
+schema, one content item per line:
 
 ```json
 {
-  "id": "doc-id",
-  "ts": "2026-08-29T12:00:00",
-  "media_sources": [
+  "ci_id": "NZZ-1900-01-04-c-i0002",
+  "ts": "2026-11-26T06:53:05Z",
+  "model_id": "impresso-project/mmbert-impresso-mediaagencies-ner@v2.1.0",
+  "nes": [
     {
-      "surface": "Reuters",
-      "label": "org.ent.pressagency.reuters",
+      "type": "org.ent.pressagency",
+      "fine_grained_type": "org.ent.pressagency.reuters",
+      "surface": "Reuter",
+      "lOffset": 250,
+      "rOffset": 256,
+      "confidence_ner": 0.8355,
+      "confidence_nel": 0.8355,
       "wkdata_qid": "Q130879",
-      "start": 120,
-      "stop": 127,
-      "score": 0.94
-    }
-  ],
-  "summary": [
-    {
-      "uid": "org.ent.pressagency.reuters",
-      "wkdata_qid": "Q130879",
-      "score": 0.94
+      "wkpedia_lg": null,
+      "wkpedia_pagename": null,
+      "label_fr": null,
+      "label_en": null,
+      "label_de": null,
+      "start_year": 1851
     }
   ]
 }
 ```
+
+- `type` is `org.ent.pressagency` or `org.ent.radiostation`; `fine_grained_type` keeps the
+  full model label.
+- `confidence_ner` is the lowest P(B-label) + P(I-label) over the mention's words;
+  `confidence_nel` has the same value.
+- `surface` is rebuilt exactly from the tokens and offsets, because the rebuilt `ft` text
+  has only spaces between tokens.
+
+The first v2.1.0 collection run (2026-11, `v1-0-0`) wrote the earlier minimal format
+`{"id", "entities": [{"label", "offset", "wikidata_id"}]}`; that output has been deleted.
+
+### Decode options
+
+The decode stage validates every row against the pinned `impresso-schemas` submodule;
+a validation failure stops the rule before upload. The decoder log ends with entity stats
+(mentions, types, top labels, anachronism pruning, confidence distribution).
+
+| Variable | Default | Effect |
+|---|---|---|
+| `DECODE_VALIDATE_SCHEMAS_MEDIAAGENCIES` | `impresso-schemas/json` | Schema directory for validation; empty disables it |
+| `DECODE_ID_INPUT_MEDIAAGENCIES` | `1` | Read the rebuilt input's content-item IDs; fill empty stage-2 IDs by position and check all others; stops on a mismatch |
+| `DECODE_WORKERS_MEDIAAGENCIES` | `1` | Decode processes per job; 1 streams the stage-2 file (about 1 GB peak); use `make -j` for parallel jobs |
+| `DECODE_TEXT_INPUT_MEDIAAGENCIES` | empty | Set to `1` for a spot check: read the rebuilt input and check that every mention's offsets give its surface in the source text; stops on a mismatch (costs extra memory) |
+
+Example spot check of one year:
+
+```bash
+make mediaagencies-target \
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-1-0.mk \
+  PROVIDER=LeTemps NEWSPAPER=GDL NEWSPAPER_YEARS=1950 \
+  DECODE_TEXT_INPUT_MEDIAAGENCIES=1
+```
+
+### Runs of v2.1.0
+
+| Run | Content | S3 |
+|---|---|---|
+| `v1-0-0` | prepare, forward and decode on the whole collection (2026-11-24/25) | Only stage 2 kept, for re-decodes; output and stage 1 deleted |
+| `v1-1-0` | Re-decode of the `v1-0-0` stage 2 (2026-11-26) | Current output: 10,513 files, 106.1 M content items, 6.23 M mentions |
+
+`v1-0-0` lost the content-item IDs of all BNF and FedGaz files: their rebuilt records carry
+`ci_id`, which its stage 1 did not read. `v1-1-0` re-decodes the `v1-0-0` stage-2 logits
+without new inference: it runs only the decode stage (`MEDIAAGENCIES_STAGE ?= decode`),
+reads stage 2 from the earlier run (`STAGE_RUN_VERSION_MEDIAAGENCIES ?= v1-0-0`), writes
+`entities-nel.v2` records and restores the IDs from the rebuilt input. Every content item
+of `v1-1-0` has a non-empty `ci_id`, with no duplicates within a file.
+
+```bash
+make processing-target \
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-1-0.mk
+```
+
+## S3 Layout
+
+All folders of a run sit next to each other under `mediaagencies/`; the stage folders
+carry the stage after the task, as in langident:
+
+```text
+mediaagencies/mediaagencies-ner-<model>_<version>/<PROVIDER>/<NEWSPAPER>/…          final output
+mediaagencies/mediaagencies-ner_stage1-<model>_<version>/<PROVIDER>/<NEWSPAPER>/…   stage 1 (prepare)
+mediaagencies/mediaagencies-ner_stage2-<model>_<version>/<PROVIDER>/<NEWSPAPER>/…   stage 2 (logits)
+mediaagencies/mediaagencies-ner-<model>_<version>__AGGREGATED.mentions.jsonl.gz
+```
+
+A re-decode run has no stage folders of its own: it reads those of
+`STAGE_RUN_VERSION_MEDIAAGENCIES`. Stage 1 can be deleted after the forward pass; it is
+rebuilt on CPU (`MEDIAAGENCIES_STAGE=prepare`) when a new forward pass needs it. Keep
+stage 2 as long as re-decodes may be needed.
+
+## Aggregation
+
+Collect all mentions of a run into one file, one JSON object per mention:
+
+```bash
+make aggregate-mediaagencies-mentions \
+  CFG=configs/config_mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-1-0_v1-1-0.mk
+```
+
+The output is written next to the run folder as
+`<run-id>__AGGREGATED.mentions.jsonl.gz`, with the fields `ci_id`, `newspaper`, `date`,
+`type`, `label`, `wikidata_id`, `start`, `end`, `surface` and `confidence_ner`. The jq filter
+`cookbook/lib/mediaagencies_mentions.jq` reads both `entities-nel.v2` records and the minimal
+format of the first v2.1.0 run; for the minimal format, `surface` and `confidence_ner` are null.

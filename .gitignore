@@ -2,6 +2,7 @@ build/
 .venv/
 test1/
 test?/
+!tests/
 testbuild/
 venv/
 Makefile.local.mk

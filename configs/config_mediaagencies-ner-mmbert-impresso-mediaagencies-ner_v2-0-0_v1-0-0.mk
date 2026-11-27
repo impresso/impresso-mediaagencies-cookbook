@@ -1,0 +1,20 @@
+# Configuration for S3 path suffix:
+# mediaagencies/mediaagencies-ner-mmbert-impresso-mediaagencies-ner_v2-0-0_v1-0-0
+
+MODEL_ID_MEDIAAGENCIES ?= mmbert-impresso-mediaagencies-ner_v2-0-0
+HF_MODEL_MEDIAAGENCIES ?= impresso-project/mmbert-impresso-mediaagencies-ner
+HF_MODEL_REVISION_MEDIAAGENCIES ?= v2.0.0
+
+RUN_VERSION_MEDIAAGENCIES ?= v1-0-0
+S3_BUCKET_MEDIAAGENCIES ?= 141-processed-data-staging
+
+BATCH_SIZE_MEDIAAGENCIES ?= 256
+OUTER_BATCH_SIZE_MEDIAAGENCIES ?= 512
+OUTER_BATCH_MAX_CHARS_MEDIAAGENCIES ?=
+DTYPE_MEDIAAGENCIES ?= bf16
+DEVICE_MEDIAAGENCIES ?= cuda
+MIN_YEAR_MEDIAAGENCIES ?= 1835
+SAMPLE_MEDIAAGENCIES ?= 1.0
+SAMPLE_SEED_MEDIAAGENCIES ?=
+FILTER_ANACHRONISTIC_MEDIAAGENCIES ?= --filter-anachronistic
+DIAGNOSTICS_MEDIAAGENCIES ?=

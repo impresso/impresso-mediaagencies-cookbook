@@ -16,6 +16,11 @@ import time
 from pathlib import Path
 from collections.abc import Iterable
 from typing import Any
+from functools import lru_cache
+from urllib.parse import urlparse
+
+from jsonschema import Draft202012Validator, FormatChecker
+from referencing import Registry, Resource
 
 DEBUG_TOKEN_CONTEXT = 2
 DEFAULT_OUTER_BATCH_MAX_CHARS = 3_000_000
@@ -45,14 +50,14 @@ try:
     from impresso_cookbook import get_timestamp, get_transport_params, setup_logging  # type: ignore
 except ImportError:
     from common import get_timestamp, get_transport_params, setup_logging  # type: ignore
-from impresso_pipelines.mediasources import MediaSourcesPipeline  # type: ignore
+from impresso_pipelines.mediaagencies import MediaAgenciesPipeline  # type: ignore
 
 
 log = logging.getLogger(__name__)
 
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Impresso media-source NER on rebuilt JSONL.")
+    parser = argparse.ArgumentParser(description="Run Impresso media-agency NER on rebuilt JSONL.")
     parser.add_argument("-i", "--input", required=True, help="Input JSONL or JSONL.BZ2 file, local or S3")
     parser.add_argument("-o", "--output", required=True, help="Output JSONL or JSONL.BZ2 file, local or S3")
     parser.add_argument("--log-file", help="Write log to FILE", metavar="FILE")
@@ -62,7 +67,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level (default: %(default)s)",
     )
-    parser.add_argument("--hf-model", default="impresso-project/mmbert-impresso-mediasources-ner")
+    parser.add_argument("--hf-model", default="impresso-project/mmbert-impresso-mediaagencies-ner")
     parser.add_argument("--revision", default="v2.0.0")
     parser.add_argument("--batch-size", type=int, default=32, help="Model window batch size")
     parser.add_argument(
@@ -108,14 +113,14 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--filter-anachronistic",
         action="store_true",
-        help="Drop media-source entities whose configured start year is after the publication year",
+        help="Drop media-agency entities whose configured start year is after the publication year",
     )
     parser.add_argument("--local-files-only", action="store_true", help="Use only cached Hugging Face model files")
     parser.add_argument("--diagnostics", action="store_true", help="Include token-level diagnostics in output rows")
     parser.add_argument(
         "--write-empty",
         action="store_true",
-        help="Write rows for documents with no detected media-source entities",
+        help="Write rows for documents with no detected media-agency entities",
     )
     return parser.parse_args(args)
 
@@ -131,7 +136,7 @@ def non_empty_batches(
     sample: float = 1.0,
     rng: random.Random | None = None,
     max_chars: int | None = None,
-) -> Iterable[tuple[list[dict[str, Any]], int, int, int]]:
+) -> Iterable[tuple[list[dict[str, Any]], int, int, int, str]]:
     batch: list[dict[str, Any]] = []
     batch_chars = 0
     read_count = 0
@@ -147,7 +152,7 @@ def non_empty_batches(
             continue
         item_length = int(item["length"])
         if batch and max_chars is not None and batch_chars + item_length > max_chars:
-            yield batch, read_count, skipped_empty_since_batch, skipped_sampled_since_batch
+            yield batch, read_count, skipped_empty_since_batch, skipped_sampled_since_batch, "max_chars"
             skipped_empty_since_batch = 0
             skipped_sampled_since_batch = 0
             batch = []
@@ -155,15 +160,15 @@ def non_empty_batches(
         batch.append(item)
         batch_chars += item_length
         if len(batch) >= batch_size:
-            yield batch, read_count, skipped_empty_since_batch, skipped_sampled_since_batch
+            yield batch, read_count, skipped_empty_since_batch, skipped_sampled_since_batch, "max_docs"
             skipped_empty_since_batch = 0
             skipped_sampled_since_batch = 0
             batch = []
             batch_chars = 0
     if batch:
-        yield batch, read_count, skipped_empty_since_batch, skipped_sampled_since_batch
+        yield batch, read_count, skipped_empty_since_batch, skipped_sampled_since_batch, "end_of_input"
     elif skipped_empty_since_batch or skipped_sampled_since_batch:
-        yield [], read_count, skipped_empty_since_batch, skipped_sampled_since_batch
+        yield [], read_count, skipped_empty_since_batch, skipped_sampled_since_batch, "end_of_input"
 
 
 def publication_year(value: Any) -> int | None:
@@ -232,9 +237,9 @@ def debug_non_o_tokens(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 def entity_to_nel(entity: dict[str, Any]) -> dict[str, Any]:
     fine_grained_type = str(entity["label"])
-    coarse_type = fine_grained_type.split(".", 1)[0] if "." in fine_grained_type else fine_grained_type
+    media_type = fine_grained_type.rsplit(".", 1)[0]
     return {
-        "type": coarse_type,
+        "type": media_type,
         "fine_grained_type": fine_grained_type,
         "surface": entity["surface"],
         "lOffset": entity["start"],
@@ -244,8 +249,43 @@ def entity_to_nel(entity: dict[str, Any]) -> dict[str, Any]:
         "wkdata_qid": entity.get("wkdata_qid"),
         "wkpedia_lg": None,
         "wkpedia_pagename": None,
+        "label_fr": None,
+        "label_en": None,
+        "label_de": None,
         "start_year": entity.get("start_year"),
     }
+
+
+@lru_cache(maxsize=1)
+def output_validator() -> Draft202012Validator:
+    root = Path(__file__).resolve().parents[1] / "impresso-schemas" / "json"
+    schema_path = root / "impresso-2/semantic-enrichment/entities/entities-nel.v2.schema.json"
+    if not schema_path.is_file():
+        raise RuntimeError("Missing output schema; run git submodule update --init --recursive")
+
+    def retrieve(uri: str) -> Resource:
+        prefix = "https://impresso.github.io/impresso-schemas/json/"
+        if not uri.startswith(prefix):
+            raise ValueError(f"Schema reference is outside the pinned submodule: {uri}")
+        path = (root / urlparse(uri).path.removeprefix("/impresso-schemas/json/")).resolve()
+        if not path.is_relative_to(root.resolve()):
+            raise ValueError(f"Invalid schema reference: {uri}")
+        return Resource.from_contents(json.loads(path.read_text(encoding="utf-8")))
+
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(schema, registry=Registry(retrieve=retrieve), format_checker=FormatChecker())
+
+
+def validate_output_row(row: dict[str, Any], text: str, qids: dict[str, Any]) -> None:
+    output_validator().validate(row)
+    for entity in row["nes"]:
+        start, stop = entity["lOffset"], entity["rOffset"]
+        if not 0 <= start < stop <= len(text) or text[start:stop] != entity["surface"]:
+            raise ValueError(f"{row['ci_id']}: entity offsets do not match source text: {entity!r}")
+        label = entity["fine_grained_type"]
+        if label not in qids or entity["wkdata_qid"] != qids[label]:
+            raise ValueError(f"{row['ci_id']}: entity link disagrees with pipeline label mapping: {label}")
 
 
 def model_dtype(model: Any) -> str:
@@ -325,7 +365,7 @@ def validate_inference_stats(stats: dict[str, Any], pipeline: Any) -> None:
     missing_stats = REQUIRED_INFERENCE_STATS - stats.keys()
     if missing_stats:
         raise RuntimeError(
-            "MediaSourcesPipeline returned incomplete inference diagnostics; "
+            "MediaAgenciesPipeline returned incomplete inference diagnostics; "
             f"missing={sorted(missing_stats)} "
             f"pipeline_class={type(pipeline).__module__}.{type(pipeline).__qualname__} "
             f"pipeline_source={inspect.getfile(type(pipeline))}"
@@ -374,7 +414,7 @@ def iter_input_rows(path: str) -> Iterable[dict[str, Any]]:
             }
 
 
-class MediaSourcesProcessor:
+class MediaAgenciesProcessor:
     def __init__(
         self,
         *,
@@ -423,9 +463,10 @@ class MediaSourcesProcessor:
         self.diagnostics = diagnostics
         self.write_empty = write_empty
         self.timestamp = get_timestamp()
+        output_validator()
 
         setup_logging(log_level, log_file, logger=log)
-        log.info("Initializing MediaSourcesPipeline model=%s revision=%s dtype=%s", hf_model, revision, dtype)
+        log.info("Initializing MediaAgenciesPipeline model=%s revision=%s dtype=%s", hf_model, revision, dtype)
         log.info(
             "Configured batch sizes: model_window_batch_size=%s outer_batch_size=%s outer_batch_max_chars=%s",
             batch_size,
@@ -448,18 +489,18 @@ class MediaSourcesProcessor:
             import transformers  # type: ignore
 
             log.info(
-                "Runtime imports: impresso_pipelines=%s path=%s MediaSourcesPipeline=%s "
+                "Runtime imports: impresso_pipelines=%s path=%s MediaAgenciesPipeline=%s "
                 "transformers=%s torch=%s cuda=%s",
                 getattr(impresso_pipelines, "__version__", "unknown"),
                 getattr(impresso_pipelines, "__file__", "unknown"),
-                inspect.getfile(MediaSourcesPipeline),
+                inspect.getfile(MediaAgenciesPipeline),
                 getattr(transformers, "__version__", "unknown"),
                 getattr(torch, "__version__", "unknown"),
                 getattr(torch.version, "cuda", None),
             )
         except Exception as exc:
             log.warning("Runtime import diagnostics unavailable: %s", exc)
-        self.pipeline = MediaSourcesPipeline(
+        self.pipeline = MediaAgenciesPipeline(
             model=hf_model,
             revision=revision,
             dtype=dtype,
@@ -527,6 +568,7 @@ class MediaSourcesProcessor:
         written_count = 0
         skipped_empty_count = 0
         skipped_sampled_count = 0
+        char_limit_batch_count = 0
         entity_counts: dict[str, int] = {}
         rng = random.Random(self.sample_seed) if self.sample_seed is not None else None
 
@@ -536,6 +578,7 @@ class MediaSourcesProcessor:
                 latest_read_count,
                 skipped_empty_since_batch,
                 skipped_sampled_since_batch,
+                flush_reason,
             ) in enumerate(
                 non_empty_batches(
                     iter_input_rows(self.input_file),
@@ -549,6 +592,8 @@ class MediaSourcesProcessor:
                 read_count = latest_read_count
                 skipped_empty_count += skipped_empty_since_batch
                 skipped_sampled_count += skipped_sampled_since_batch
+                if flush_reason == "max_chars":
+                    char_limit_batch_count += 1
                 if log.isEnabledFor(logging.DEBUG):
                     log.debug(
                         "Outer batch %s non-empty rows: %s",
@@ -566,10 +611,11 @@ class MediaSourcesProcessor:
                     )
                 if not batch:
                     log.info(
-                        "Outer batch %s: docs=0 read_rows=%s skipped_empty_docs_since_previous=%s "
+                        "Outer batch %s: docs=0 read_rows=%s flush_reason=%s skipped_empty_docs_since_previous=%s "
                         "skipped_sampled_docs_since_previous=%s",
                         outer_batch_index,
                         read_count,
+                        flush_reason,
                         skipped_empty_since_batch,
                         skipped_sampled_since_batch,
                     )
@@ -581,12 +627,13 @@ class MediaSourcesProcessor:
                 batch_chars = sum(item["length"] for item in sorted_items)
                 doc_lengths = [item["length"] for item in sorted_items]
                 log.info(
-                    "Outer batch %s: docs=%s read_rows=%s skipped_empty_docs_since_previous=%s "
+                    "Outer batch %s: docs=%s read_rows=%s flush_reason=%s skipped_empty_docs_since_previous=%s "
                     "skipped_sampled_docs_since_previous=%s chars=%s model_window_batch_size=%s "
                     "outer_batch_size=%s outer_batch_max_chars=%s sample=%s doc_lengths=%s",
                     outer_batch_index,
                     len(sorted_items),
                     read_count,
+                    flush_reason,
                     skipped_empty_since_batch,
                     skipped_sampled_since_batch,
                     fmt_int(batch_chars),
@@ -770,18 +817,20 @@ class MediaSourcesProcessor:
                             )
                             if key in result
                         }
-                    output_stream.write(json.dumps(output_row, ensure_ascii=False) + "\n")
+                    validate_output_row(output_row, item["text"], self.pipeline.wkdata_qids)
+                    output_stream.write(json.dumps(output_row, ensure_ascii=False, allow_nan=False) + "\n")
                     written_count += 1
                 del batch, sorted_items, texts, publication_dates, results
                 gc.collect()
                 log.info("Outer batch %s memory after write cleanup: rss=%s", outer_batch_index, fmt_mb(current_rss_mb()))
 
         total_duration = max(time.perf_counter() - started, 1e-9)
-        log.info("Completed media-source processing")
+        log.info("Completed media-agency processing")
         log.info("Read rows: %s", read_count)
         log.info("Processed non-empty docs: %s", processed_count)
         log.info("Skipped empty docs: %s", skipped_empty_count)
         log.info("Skipped sampled-out non-empty docs: %s", skipped_sampled_count)
+        log.info("Outer batches closed by char limit: %s", char_limit_batch_count)
         sample_eligible_count = processed_count + skipped_sampled_count
         if self.sample < 1.0:
             kept_percent = 100.0 * processed_count / sample_eligible_count if sample_eligible_count else 0.0
@@ -804,7 +853,7 @@ class MediaSourcesProcessor:
                 sample_eligible_count,
             )
         log.info("Written rows: %s", written_count)
-        log.info("Recognized media-source entities: %s", sum(entity_counts.values()))
+        log.info("Recognized media-agency entities: %s", sum(entity_counts.values()))
         log.info("Inference configuration:")
         log.info("  model: %s", self.hf_model)
         log.info("  revision: %s", self.revision)
@@ -859,28 +908,28 @@ class MediaSourcesProcessor:
 def main(args: list[str] | None = None) -> None:
     options = parse_args(args)
     if options.min_year is None:
-        options.min_year = env_int("MIN_YEAR_MEDIASOURCES")
+        options.min_year = env_int("MIN_YEAR_MEDIAAGENCIES")
     if options.outer_batch_max_chars is None:
-        options.outer_batch_max_chars = env_int("OUTER_BATCH_MAX_CHARS_MEDIASOURCES")
+        options.outer_batch_max_chars = env_int("OUTER_BATCH_MAX_CHARS_MEDIAAGENCIES")
     if options.outer_batch_max_chars is None:
         options.outer_batch_max_chars = DEFAULT_OUTER_BATCH_MAX_CHARS
     if options.sample is None:
-        env_sample = env_float("SAMPLE_MEDIASOURCES")
+        env_sample = env_float("SAMPLE_MEDIAAGENCIES")
         options.sample = 1.0 if env_sample is None else env_sample
     if options.sample_seed is None:
-        options.sample_seed = env_int("SAMPLE_SEED_MEDIASOURCES")
+        options.sample_seed = env_int("SAMPLE_SEED_MEDIAAGENCIES")
 
     # Configure logging before model initialization so CLI arguments are captured
     # even if pipeline construction fails.
     setup_logging(options.log_level, options.log_file, logger=log)
     log.info("%s", options)
     log.info(
-        "MediaSources environment: MIN_YEAR_MEDIASOURCES=%r OUTER_BATCH_MAX_CHARS_MEDIASOURCES=%r "
-        "SAMPLE_MEDIASOURCES=%r SAMPLE_SEED_MEDIASOURCES=%r",
-        os.environ.get("MIN_YEAR_MEDIASOURCES"),
-        os.environ.get("OUTER_BATCH_MAX_CHARS_MEDIASOURCES"),
-        os.environ.get("SAMPLE_MEDIASOURCES"),
-        os.environ.get("SAMPLE_SEED_MEDIASOURCES"),
+        "MediaAgencies environment: MIN_YEAR_MEDIAAGENCIES=%r OUTER_BATCH_MAX_CHARS_MEDIAAGENCIES=%r "
+        "SAMPLE_MEDIAAGENCIES=%r SAMPLE_SEED_MEDIAAGENCIES=%r",
+        os.environ.get("MIN_YEAR_MEDIAAGENCIES"),
+        os.environ.get("OUTER_BATCH_MAX_CHARS_MEDIAAGENCIES"),
+        os.environ.get("SAMPLE_MEDIAAGENCIES"),
+        os.environ.get("SAMPLE_SEED_MEDIAAGENCIES"),
     )
     if not 0.0 < options.sample <= 1.0:
         raise ValueError("--sample must be greater than 0 and less than or equal to 1")
@@ -898,7 +947,7 @@ def main(args: list[str] | None = None) -> None:
             )
         elif input_year < options.min_year:
             log.info(
-                "Skipping media-source processing for input_year=%s from %s because it is earlier than "
+                "Skipping media-agency processing for input_year=%s from %s because it is earlier than "
                 "--min-year=%s; writing empty output %s",
                 input_year,
                 year_source,
@@ -918,7 +967,7 @@ def main(args: list[str] | None = None) -> None:
     device = None if str(options.device).lower() == "auto" else options.device
     if isinstance(device, str) and device.lstrip("-").isdigit():
         device = int(device)
-    processor = MediaSourcesProcessor(
+    processor = MediaAgenciesProcessor(
         input_file=options.input,
         output_file=options.output,
         hf_model=options.hf_model,
