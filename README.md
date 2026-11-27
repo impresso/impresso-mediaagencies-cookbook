@@ -169,7 +169,7 @@ a validation failure stops the rule before upload. The decoder log ends with ent
 | `DECODE_VALIDATE_SCHEMAS_MEDIAAGENCIES` | `impresso-schemas/json` | Schema directory for validation; empty disables it |
 | `DECODE_ID_INPUT_MEDIAAGENCIES` | `1` | Read the rebuilt input's content-item IDs; fill empty stage-2 IDs by position and check all others; stops on a mismatch |
 | `DECODE_WORKERS_MEDIAAGENCIES` | `1` | Decode processes per job; 1 streams the stage-2 file (about 1 GB peak); use `make -j` for parallel jobs |
-| `DECODE_TEXT_INPUT_MEDIAAGENCIES` | empty | Set to `1` for a spot check: read the rebuilt input, take surfaces from the source text and verify offsets (costs extra memory) |
+| `DECODE_TEXT_INPUT_MEDIAAGENCIES` | empty | Set to `1` for a spot check: read the rebuilt input and check that every mention's offsets give its surface in the source text; stops on a mismatch (costs extra memory) |
 
 Example spot check of one year:
 
